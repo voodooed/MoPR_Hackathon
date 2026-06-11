@@ -296,12 +296,20 @@ def stage_hydrology(jid: str, dtm_path: str, out_dir: str) -> dict:
     if not HAS_WHITEBOX or not HAS_RASTERIO:
         raise RuntimeError("Missing: whitebox or rasterio")
 
+    # Convert everything to absolute paths so Whitebox doesn't get lost
+    out_dir = os.path.abspath(out_dir)
+    dtm_path = os.path.abspath(dtm_path)
+
     wbt = whitebox.WhiteboxTools()
     wbt.set_working_dir(out_dir)
-    wbt.verbose = False
+    
+    # Turn this to True so we can see real errors in the terminal
+    wbt.verbose = True  
 
     def p(name):   # shorthand for abs path
         return os.path.join(out_dir, name)
+        
+    # ... rest of the function stays exactly the same
 
     # ── WhiteboxTools steps ───────────────────────────────────────────────
     emit(jid, "log", {"msg": "Filling depressions …", "level": "info"})
@@ -436,7 +444,7 @@ def stage_hydrology(jid: str, dtm_path: str, out_dir: str) -> dict:
 def stage_geojson(jid: str, out_dir: str) -> dict:
     """
     Convert shapefiles → WGS84 GeoJSON using fiona+shapely+pyproj.
-    Falls back to bbox-based synthetic GeoJSON if libs not available.
+    Forces EPSG:32643 projection if the shapefile is missing a .prj file.
     """
     geojsons = {}
 
@@ -448,25 +456,27 @@ def stage_geojson(jid: str, out_dir: str) -> dict:
             try:
                 with fiona.open(shp_path) as src:
                     src_crs = src.crs
-                    # Build transformer to WGS84
+                    
+                    # THE FIX: If Whitebox didn't write a .prj file, force the UTM zone
+                    if not src_crs:
+                        src_crs = "EPSG:32643" 
+                    
+                    # Build transformer to WGS84 (Lat/Lon for Leaflet)
                     try:
                         tr = Transformer.from_crs(src_crs, "EPSG:4326", always_xy=True)
-                        need_transform = True
                     except Exception:
-                        need_transform = False
+                        tr = Transformer.from_crs("EPSG:32643", "EPSG:4326", always_xy=True)
 
                     for feat in src:
                         geom = sg.shape(feat["geometry"])
-                        if need_transform:
-                            geom = sg.mapping(sg.shape(
-                                {**feat["geometry"],
-                                 "coordinates": _transform_coords(feat["geometry"], tr)}))
-                        else:
-                            geom = feat["geometry"]
+                        transformed_geom = sg.mapping(sg.shape(
+                            {**feat["geometry"],
+                             "coordinates": _transform_coords(feat["geometry"], tr)}))
+                        
                         features.append({
                             "type": "Feature",
                             "properties": dict(feat["properties"]),
-                            "geometry": geom if isinstance(geom, dict) else sg.mapping(geom),
+                            "geometry": transformed_geom,
                         })
             except Exception as e:
                 return False, str(e)
@@ -506,7 +516,6 @@ def stage_geojson(jid: str, out_dir: str) -> dict:
                 else:
                     emit(jid, "log", {"msg": f"GeoJSON conversion warning ({name}): {err}", "level": "warn"})
 
-    # ── Fallback: read DTM extent and synthesise representative GeoJSON ──
     if not geojsons:
         emit(jid, "log", {"msg": "Generating representative GeoJSON from DTM extent …", "level": "info"})
         geojsons = _synthetic_geojson(jid, out_dir)
