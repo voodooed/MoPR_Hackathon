@@ -1,0 +1,823 @@
+<!-- @Voodoo/*19062026 -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMART-DRAIN — Geospatial Intelligence Platform</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/tabler-icons.min.css">
+<style>
+/* ── Reset + base ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:       #ffffff;
+  --bg2:      #f5f7f5;
+  --bg3:      #eef1ee;
+  --border:   rgba(0,0,0,0.09);
+  --border2:  rgba(0,0,0,0.16);
+  --text:     #1a1a1a;
+  --text2:    #555;
+  --text3:    #888;
+  --green:    #1D9E75;
+  --green2:   #0F6E56;
+  --green-bg: #E1F5EE;
+  --red:      #D85A30;
+  --red-bg:   #FAECE7;
+  --purple:   #7F77DD;
+  --amber:    #BA7517;
+  --amber-bg: #FAEEDA;
+  --blue:     #4A90E2;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "SF Mono", "Fira Code", ui-monospace, monospace;
+  --r: 8px;
+  --r2: 12px;
+}
+html, body { height: 100%; font-family: var(--font); background: var(--bg2); color: var(--text); font-size: 14px; }
+
+/* ── Layout ────────────────────────────────────────────────── */
+.shell { display: flex; flex-direction: column; height: 100vh; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; height: 48px;
+  background: var(--bg); border-bottom: 0.5px solid var(--border2);
+  flex-shrink: 0;
+}
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(29,158,117,0.4); animation: pulse 2.5s infinite; }
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(29,158,117,0.4)} 50%{box-shadow:0 0 0 6px rgba(29,158,117,0)} }
+.logo-name { font-size: 15px; font-weight: 600; letter-spacing: .04em; color: var(--text); }
+.logo-divider { color: var(--text3); }
+.logo-sub { font-size: 12px; color: var(--text3); }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.badge { font-size: 11px; padding: 3px 10px; border-radius: 99px; background: var(--green-bg); color: var(--green2); font-weight: 500; }
+.badge-gray { background: var(--bg3); color: var(--text3); }
+
+.body { display: flex; flex: 1; min-height: 0; }
+
+/* ── Sidebar ───────────────────────────────────────────────── */
+.sidebar {
+  width: 240px; flex-shrink: 0;
+  background: var(--bg); border-right: 0.5px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* Upload zone */
+.upload-zone {
+  margin: 14px 14px 0;
+  border: 1.5px dashed var(--border2);
+  border-radius: var(--r2);
+  padding: 20px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  position: relative;
+}
+.upload-zone:hover, .upload-zone.drag { background: var(--green-bg); border-color: var(--green); }
+.upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-icon { font-size: 26px; color: var(--green); margin-bottom: 8px; }
+.upload-title { font-size: 13px; font-weight: 500; color: var(--text); }
+.upload-hint  { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.upload-file  { margin-top: 8px; font-size: 11px; color: var(--green2); display: none; word-break: break-all; }
+
+/* Pipeline steps */
+.pipeline { flex: 1; overflow-y: auto; padding: 10px 14px 6px; }
+.pipe-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .07em; margin: 10px 0 8px; }
+
+.step { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: var(--r); cursor: pointer; transition: background .12s; }
+.step:hover { background: var(--bg2); }
+.step.active { background: var(--green-bg); }
+
+.step-icon {
+  width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
+  border: 1px solid var(--border2); background: var(--bg2); color: var(--text3);
+  transition: all .2s;
+}
+.step-icon.done    { background: var(--green); border-color: var(--green); color: #fff; }
+.step-icon.running { background: var(--amber-bg); border-color: var(--amber); color: var(--amber); animation: spin 1s linear infinite; }
+.step-icon.error   { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.step-body { flex: 1; min-width: 0; }
+.step-label { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step-sub   { font-size: 10px; color: var(--text3); }
+.step-time  { font-size: 10px; color: var(--green2); flex-shrink: 0; }
+
+.connector { width: 1px; height: 7px; background: var(--border2); margin: 0 0 0 19px; }
+
+/* Run button */
+.run-wrap { padding: 10px 14px 14px; }
+.run-btn {
+  width: 100%; padding: 9px 12px;
+  border-radius: var(--r); border: none; cursor: pointer;
+  background: var(--green); color: #fff;
+  font-size: 13px; font-weight: 500;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  transition: background .15s, opacity .15s;
+}
+.run-btn:hover { background: var(--green2); }
+.run-btn:disabled { opacity: .45; cursor: not-allowed; background: var(--green); }
+.run-btn.done { background: var(--green2); }
+
+/* ── Main panel ────────────────────────────────────────────── */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* Map toolbar */
+.map-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 14px;
+  background: var(--bg); border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+}
+.layer-tog {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 99px;
+  border: 0.5px solid var(--border2); background: var(--bg2);
+  font-size: 11px; cursor: pointer; color: var(--text3);
+  transition: all .15s; user-select: none;
+}
+.layer-tog.on  { border-color: currentColor; }
+.layer-tog.on.drain    { color: var(--green2); background: var(--green-bg); }
+.layer-tog.on.hotspot  { color: var(--red); background: var(--red-bg); }
+.layer-tog.on.altdrain { color: var(--purple); background: #EEEDFE; }
+.layer-tog.on.dtm_img  { color: #444; background: var(--bg3); }
+.layer-tog.on.twi_img  { color: var(--blue); background: #E6F0FA; }
+.layer-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.toolbar-gap { flex: 1; }
+.btn-sm {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: var(--r);
+  border: 0.5px solid var(--border2); background: var(--bg);
+  font-size: 11px; cursor: pointer; color: var(--text2);
+  transition: background .15s;
+}
+.btn-sm:hover { background: var(--bg3); }
+.btn-sm.primary { background: var(--green); color: #fff; border-color: var(--green); }
+.btn-sm.primary:hover { background: var(--green2); }
+
+/* Map */
+.map-wrap { flex: 1; position: relative; background: #dde8dd; min-height: 0; }
+#map { width: 100%; height: 100%; }
+.map-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
+  pointer-events: none;
+}
+.map-empty i { font-size: 40px; color: var(--green); opacity: .35; }
+.map-empty p { font-size: 13px; color: var(--text3); max-width: 280px; text-align: center; line-height: 1.5; }
+
+/* Stats bar */
+.stats-bar { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 0.5px solid var(--border); flex-shrink: 0; }
+.stat { padding: 10px 16px; border-right: 0.5px solid var(--border); }
+.stat:last-child { border-right: none; }
+.stat-label { font-size: 10px; color: var(--text3); margin-bottom: 2px; }
+.stat-val { font-size: 20px; font-weight: 600; color: var(--text); line-height: 1; }
+.stat-unit { font-size: 10px; color: var(--text3); margin-top: 1px; }
+.stat-val.placeholder { color: var(--border2); }
+
+/* Log */
+.log-panel {
+  height: 100px; border-top: 0.5px solid var(--border);
+  background: #f8f9f8; overflow-y: auto; padding: 6px 14px;
+  font-family: var(--mono); font-size: 11px; flex-shrink: 0;
+}
+.log-line { display: flex; gap: 10px; padding: 1.5px 0; line-height: 1.4; }
+.log-t  { color: var(--text3); flex-shrink: 0; min-width: 44px; }
+.log-ok   { color: var(--green2); }
+.log-info { color: var(--text2); }
+.log-warn { color: var(--amber); }
+.log-err  { color: var(--red); }
+
+/* ── Progress overlay ──────────────────────────────────────── */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.4);
+  display: none; align-items: center; justify-content: center; z-index: 9999;
+}
+.overlay.show { display: flex; }
+.overlay-card {
+  background: var(--bg); border-radius: var(--r2);
+  padding: 28px 32px; text-align: center; min-width: 260px;
+}
+.overlay-title { font-size: 15px; font-weight: 500; margin-bottom: 6px; }
+.overlay-sub   { font-size: 12px; color: var(--text3); }
+.progress-bar  { margin: 16px 0 4px; height: 4px; border-radius: 99px; background: var(--bg3); overflow: hidden; }
+.progress-fill { height: 100%; background: var(--green); border-radius: 99px; width: 0; transition: width .4s; }
+
+/* ── Notification toast ────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--text); color: #fff;
+  padding: 10px 16px; border-radius: var(--r); font-size: 12px;
+  display: none; z-index: 9998; animation: fadein .2s;
+}
+@keyframes fadein { from { opacity:0; transform: translateY(8px); } }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-pulse"></div>
+      <span class="logo-name">SMART-DRAIN</span>
+      <span class="logo-divider">/</span>
+      <span class="logo-sub">Geospatial Intelligence Platform</span>
+    </div>
+    <div class="topbar-right">
+      <span class="badge">MoPR Hackathon 2025</span>
+      <span class="badge badge-gray">IIT Kanpur · Geo-Intel Lab</span>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <div class="sidebar">
+
+      <div class="upload-zone" id="uploadZone"
+           ondragover="event.preventDefault(); this.classList.add('drag')"
+           ondragleave="this.classList.remove('drag')"
+           ondrop="onDrop(event)">
+        <input type="file" id="fileInput" accept=".las,.laz" onchange="onFileSelect(this)">
+        <div class="upload-icon"><i class="ti ti-cloud-upload"></i></div>
+        <div class="upload-title">Drop point cloud here</div>
+        <div class="upload-hint">or click to browse · .las / .laz</div>
+        <div class="upload-file" id="uploadFile"></div>
+      </div>
+
+      <div class="pipeline">
+        <div class="pipe-label">Pipeline</div>
+
+        <div class="step active" id="step-0" onclick="focusStep(0)">
+          <div class="step-icon done" id="icon-0"><i class="ti ti-check"></i></div>
+          <div class="step-body">
+            <div class="step-label">File upload</div>
+            <div class="step-sub">LAS / LAZ → server</div>
+          </div>
+          <span class="step-time" id="time-0"></span>
+        </div>
+        <div class="connector"></div>
+
+        <div class="step" id="step-1" onclick="focusStep(1)">
+          <div class="step-icon" id="icon-1"><i class="ti ti-cpu"></i></div>
+          <div class="step-body">
+            <div class="step-label">RandLA-Net classify</div>
+            <div class="step-sub">Ground / non-ground</div>
+          </div>
+          <span class="step-time" id="time-1"></span>
+        </div>
+        <div class="connector"></div>
+
+        <div class="step" id="step-2" onclick="focusStep(2)">
+          <div class="step-icon" id="icon-2"><i class="ti ti-topology-ring-2"></i></div>
+          <div class="step-body">
+            <div class="step-label">DTM generation</div>
+            <div class="step-sub">GDAL → COG GeoTIFF</div>
+          </div>
+          <span class="step-time" id="time-2"></span>
+        </div>
+        <div class="connector"></div>
+
+        <div class="step" id="step-3" onclick="focusStep(3)">
+          <div class="step-icon" id="icon-3"><i class="ti ti-droplets"></i></div>
+          <div class="step-body">
+            <div class="step-label">Hydrological model</div>
+            <div class="step-sub">Fill → Flow → TWI → HAND</div>
+          </div>
+          <span class="step-time" id="time-3"></span>
+        </div>
+        <div class="connector"></div>
+
+        <div class="step" id="step-4" onclick="focusStep(4)">
+          <div class="step-icon" id="icon-4"><i class="ti ti-map-2"></i></div>
+          <div class="step-body">
+            <div class="step-label">Map export</div>
+            <div class="step-sub">Shapefile → GeoJSON</div>
+          </div>
+          <span class="step-time" id="time-4"></span>
+        </div>
+        <div class="connector"></div>
+
+        <div class="step" id="step-5" onclick="focusStep(5)">
+          <div class="step-icon" id="icon-5"><i class="ti ti-package"></i></div>
+          <div class="step-body">
+            <div class="step-label">Package outputs</div>
+            <div class="step-sub">ZIP all layers</div>
+          </div>
+          <span class="step-time" id="time-5"></span>
+        </div>
+      </div>
+
+      <div class="run-wrap">
+        <button class="run-btn" id="runBtn" onclick="startUpload()" disabled>
+          <i class="ti ti-cloud-upload" style="font-size:14px"></i>
+          Upload File
+        </button>
+      </div>
+    </div>
+
+    <div class="main">
+
+      <div class="map-toolbar">
+        <button class="layer-tog on drain" id="tog-drain" onclick="toggleLayer('drain')">
+          <div class="layer-dot" style="background:var(--green)"></div>
+          Natural drainage
+        </button>
+        <button class="layer-tog on hotspot" id="tog-hotspot" onclick="toggleLayer('hotspot')">
+          <div class="layer-dot" style="background:var(--red)"></div>
+          Waterlogging zones
+        </button>
+        <button class="layer-tog on altdrain" id="tog-altdrain" onclick="toggleLayer('altdrain')">
+          <div class="layer-dot" style="background:var(--purple)"></div>
+          Proposed drainage
+        </button>
+        
+        <div class="toolbar-gap"></div>
+        
+        <button class="layer-tog dtm_img" id="tog-dtm_img" onclick="toggleLayer('dtm_img')">
+          <div class="layer-dot" style="background:#888"></div>
+          DTM Surface
+        </button>
+        <button class="layer-tog twi_img" id="tog-twi_img" onclick="toggleLayer('twi_img')">
+          <div class="layer-dot" style="background:var(--blue)"></div>
+          Wetness Index (TWI)
+        </button>
+        
+        <div class="toolbar-gap"></div>
+
+        <button class="btn-sm" id="btnGeoJSON" onclick="downloadGeoJSON()" disabled>
+          <i class="ti ti-download" style="font-size:13px"></i> GeoJSON
+        </button>
+        <button class="btn-sm primary" id="btnDownload" onclick="downloadZip()" disabled>
+          <i class="ti ti-folder-zip" style="font-size:13px"></i> Download all outputs
+        </button>
+      </div>
+
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div class="map-empty" id="mapEmpty">
+          <i class="ti ti-map-pin-off"></i>
+          <p>Upload a .las or .laz point cloud and run the pipeline to visualise drainage outputs on OpenStreetMap</p>
+        </div>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat">
+          <div class="stat-label">Points classified</div>
+          <div class="stat-val placeholder" id="sv-pts">—</div>
+          <div class="stat-unit">total pts</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Model accuracy</div>
+          <div class="stat-val placeholder" id="sv-acc">—</div>
+          <div class="stat-unit">RandLA-Net</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Waterlogging zones</div>
+          <div class="stat-val placeholder" id="sv-hot">—</div>
+          <div class="stat-unit">hotspot polygons</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Drainage network</div>
+          <div class="stat-val placeholder" id="sv-drain">—</div>
+          <div class="stat-unit">km estimated</div>
+        </div>
+      </div>
+
+      <div class="log-panel" id="logPanel">
+        <div class="log-line">
+          <span class="log-t">00.0s</span>
+          <span class="log-info">SMART-DRAIN ready — upload a .las/.laz file to begin.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="overlay-card">
+    <div class="overlay-title" id="overlayTitle">Uploading…</div>
+    <div class="overlay-sub" id="overlaySub">Please wait</div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── State ────────────────────────────────────────────────────────────────
+let jobId        = null;
+let fileReady    = false;
+let selectedFile = null;
+let mapReady     = false;
+let leafletMap   = null;
+let mapLayers    = { drain: null, hotspot: null, altdrain: null, dtm_img: null, twi_img: null };
+let layerOn      = { drain: true, hotspot: true, altdrain: true, dtm_img: false, twi_img: false }; // Hide rasters by default
+let geojsonPaths = {};
+let visualData   = null; 
+let t0           = null;
+const stageStart = {};
+
+// ── File handling ─────────────────────────────────────────────────────────
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) acceptFile(f);
+}
+function onFileSelect(input) {
+  if (input.files[0]) acceptFile(input.files[0]);
+}
+function acceptFile(f) {
+  if (!f.name.toLowerCase().match(/\.(las|laz)$/)) {
+    showToast('Only .las or .laz files accepted');
+    return;
+  }
+  selectedFile = f;
+  fileReady = true;
+  const el = document.getElementById('uploadFile');
+  el.textContent = f.name + '  (' + (f.size / 1024 / 1024).toFixed(1) + ' MB)';
+  el.style.display = 'block';
+  
+  // Reset button to Upload state
+  const btn = document.getElementById('runBtn');
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-cloud-upload" style="font-size:14px"></i> Upload File';
+  btn.onclick = startUpload;
+  
+  setStep(0, 'done', '—');
+  addLog('ok', 'File selected: ' + f.name);
+}
+
+// ── Upload Step (Step 1) ────────────────────────────────────────────────
+async function startUpload() {
+  if (!fileReady || !selectedFile) return;
+  
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('runBtn').innerHTML = '<i class="ti ti-loader" style="font-size:14px"></i> Uploading...';
+  
+  showOverlay('Uploading point cloud…', selectedFile.name);
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (res.ok) {
+        jobId = data.job_id;
+        hideOverlay();
+        addLog('ok', 'Upload complete. Click Run Pipeline to begin processing.');
+        
+        // Change the button to actually start the pipeline now
+        const btn = document.getElementById('runBtn');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-player-play" style="font-size:14px"></i> Run Pipeline';
+        btn.onclick = startProcessing;
+    } else {
+        throw new Error(data.error);
+    }
+  } catch (e) {
+    hideOverlay();
+    addLog('err', 'Upload failed: ' + e.message);
+    
+    // Re-enable upload button
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-cloud-upload" style="font-size:14px"></i> Retry Upload';
+  }
+}
+
+// ── Run Pipeline Step (Step 2) ──────────────────────────────────────────
+async function startProcessing() {
+    if(!jobId) return;
+    t0 = Date.now();
+    
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ti ti-loader" style="font-size:14px"></i> Processing AI...';
+    
+    try {
+        const res = await fetch('/run/' + jobId, { method: 'POST' });
+        if(res.ok) {
+            listenSSE(jobId);
+        } else {
+            throw new Error("Failed to start pipeline");
+        }
+    } catch(e) {
+        addLog('err', e.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-player-play" style="font-size:14px"></i> Retry Pipeline';
+    }
+}
+
+// ── SSE listener ──────────────────────────────────────────────────────────
+function listenSSE(jid) {
+  const es = new EventSource('/stream/' + jid);
+
+  es.addEventListener('stage', e => {
+    const d = JSON.parse(e.data);
+    const idx = d.stage;
+    stageStart[idx] = Date.now();
+    setStep(idx, 'running');
+    focusStep(idx);
+    addLog('info', '▶ ' + d.label + '…');
+    setProgress(idx / 6 * 100);
+  });
+
+  es.addEventListener('stage_done', e => {
+    const d = JSON.parse(e.data);
+    const idx = d.stage;
+    const elapsed = stageStart[idx] ? ((Date.now() - stageStart[idx]) / 1000).toFixed(1) + 's' : '';
+    setStep(idx, 'done', elapsed);
+    setProgress((idx + 1) / 6 * 100);
+  });
+
+  es.addEventListener('log', e => {
+    const d = JSON.parse(e.data);
+    addLog(d.level || 'info', d.msg);
+  });
+
+  es.addEventListener('done', e => {
+    const d = JSON.parse(e.data);
+    es.close();
+
+    // Stats
+    document.getElementById('sv-pts').textContent   = d.total_pts;
+    document.getElementById('sv-acc').textContent   = d.accuracy;
+    document.getElementById('sv-hot').textContent   = d.hotspots;
+    document.getElementById('sv-drain').textContent = d.drain_km;
+    ['sv-pts','sv-acc','sv-hot','sv-drain'].forEach(id => {
+      document.getElementById(id).classList.remove('placeholder');
+    });
+
+    geojsonPaths = d.geojsons || {};
+    visualData = d.visuals || {};
+
+    // Enable buttons
+    document.getElementById('btnDownload').disabled = false;
+    document.getElementById('btnGeoJSON').disabled  = false;
+
+    // Load map with both GeoJSON and intermediate raster visuals
+    loadMap(d.geojsons, d.visuals);
+
+    const total = ((Date.now() - t0) / 1000).toFixed(1);
+    addLog('ok', '🎉 Pipeline complete in ' + total + 's');
+    
+    const btn = document.getElementById('runBtn');
+    btn.innerHTML = '<i class="ti ti-check" style="font-size:14px"></i> Complete';
+    btn.classList.add('done');
+    setProgress(100);
+    showToast('Pipeline complete! Results visualised on map.');
+  });
+
+  es.addEventListener('error', e => {
+    const d = JSON.parse(e.data || '{}');
+    es.close();
+    addLog('err', 'Error: ' + (d.msg || 'Unknown error'));
+    if (d.trace) console.error(d.trace);
+    
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-player-play" style="font-size:14px"></i> Retry Pipeline';
+    showToast('Pipeline failed — check log for details');
+  });
+
+  es.onerror = () => {
+    es.close();
+    addLog('warn', 'Connection lost — check server');
+  };
+}
+
+// ── Leaflet map (Canvas Rendering applied) ───────────────────────────────
+async function loadMap(gjPaths, visuals) {
+  document.getElementById('mapEmpty').style.display = 'none';
+
+  if (!mapReady) {
+    // 🚀 Canvas rendering enabled here to prevent browser hanging
+    leafletMap = L.map('map', { preferCanvas: true }).setView([26.8467, 80.9462], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors',
+      maxZoom: 20
+    }).addTo(leafletMap);
+    addLegend();
+    mapReady = true;
+  }
+
+  // Remove old layers
+  Object.values(mapLayers).forEach(l => { if (l) leafletMap.removeLayer(l); });
+  mapLayers = { drain: null, hotspot: null, altdrain: null, dtm_img: null, twi_img: null };
+
+  // 1. Render Intermediate Raster Images
+  if(visuals && visuals.dtm) {
+      mapLayers.dtm_img = L.imageOverlay(visuals.dtm.url, visuals.dtm.bounds, {opacity: 0.65});
+      if(layerOn.dtm_img) mapLayers.dtm_img.addTo(leafletMap);
+  }
+  if(visuals && visuals.twi) {
+      mapLayers.twi_img = L.imageOverlay(visuals.twi.url, visuals.twi.bounds, {opacity: 0.65});
+      if(layerOn.twi_img) mapLayers.twi_img.addTo(leafletMap);
+  }
+
+  // 2. Fetch and render GeoJSON layers
+  const tasks = [
+    { key: 'drainage',     mapKey: 'drain',    style: drainStyle,    popup: drainPopup },
+    { key: 'hotspots',     mapKey: 'hotspot',  style: hotspotStyle,  popup: hotPopup   },
+    { key: 'alt_drainage', mapKey: 'altdrain', style: altStyle,      popup: altPopup   },
+  ];
+
+  const bounds = [];
+  for (const t of tasks) {
+    const url = gjPaths[t.key];
+    if (!url) continue;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      const gj = await r.json();
+      if (!gj.features || gj.features.length === 0) continue;
+
+      const layer = L.geoJSON(gj, {
+        style: t.style,
+        pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 5, ...t.style(f) }),
+        onEachFeature: (f, l) => l.bindPopup(t.popup(f.properties || {}))
+      });
+
+      if (layerOn[t.mapKey]) layer.addTo(leafletMap);
+      mapLayers[t.mapKey] = layer;
+
+      try { layer.getBounds && bounds.push(layer.getBounds()); } catch(e){}
+    } catch (e) {
+      console.warn('Failed to load layer', t.key, e);
+    }
+  }
+
+  // Fit map to data bounds
+  if (bounds.length) {
+    try {
+      const combined = bounds.reduce((a, b) => a.extend(b));
+      leafletMap.fitBounds(combined, { padding: [30, 30] });
+    } catch(e){}
+  } else if (visuals && visuals.dtm && visuals.dtm.bounds) {
+      // Fallback: zoom to raster bounds if no vector data
+      leafletMap.fitBounds(visuals.dtm.bounds);
+  }
+}
+
+const drainStyle  = () => ({ color: '#1D9E75', weight: 2.5, opacity: .85 });
+const hotspotStyle = f => {
+  const risk = (f.properties || f)?.risk || 'Medium';
+  const c = risk === 'High' ? '#D85A30' : risk === 'Low' ? '#1D9E75' : '#BA7517';
+  return { color: c, fillColor: c, fillOpacity: .3, weight: 1.5 };
+};
+const altStyle = () => ({ color: '#7F77DD', weight: 2, opacity: .9, dashArray: '6,4' });
+
+function drainPopup(p) {
+  return `<div style="font-size:12px;min-width:140px">
+    <b style="color:#0F6E56"><i class="ti ti-droplet"></i> Natural flow path</b><br>
+    ${p.order ? 'Stream order: ' + p.order + '<br>' : ''}
+    ${p.length_m ? 'Length: ' + p.length_m + ' m' : ''}
+  </div>`;
+}
+function hotPopup(p) {
+  const riskColor = p.risk === 'High' ? '#D85A30' : p.risk === 'Low' ? '#1D9E75' : '#BA7517';
+  return `<div style="font-size:12px;min-width:160px">
+    <b style="color:${riskColor}">● ${p.risk || 'Medium'} Risk Zone</b><br>
+    ${p.area_ha ? 'Area: ' + p.area_ha + ' ha<br>' : ''}
+    ${p.households ? 'Households: <b>' + p.households + '</b>' : ''}
+  </div>`;
+}
+function altPopup(p) {
+  return `<div style="font-size:12px;min-width:150px">
+    <b style="color:#7F77DD">Proposed drain</b><br>
+    ${p.priority ? 'Priority: #' + p.priority + '<br>' : ''}
+    ${p.cost_lakh ? 'Est. cost: ₹' + p.cost_lakh + ' lakh' : ''}
+  </div>`;
+}
+
+function addLegend() {
+  const legend = L.control({ position: 'bottomright' });
+  legend.onAdd = () => {
+    const d = L.DomUtil.create('div');
+    d.style.cssText = 'background:#fff;padding:8px 12px;border-radius:8px;font-size:11px;line-height:2;border:0.5px solid #ccc;font-family:system-ui';
+    d.innerHTML = `<b style="display:block;margin-bottom:2px;font-size:12px">SMART-DRAIN</b>
+      <span style="display:inline-block;width:18px;height:3px;background:#1D9E75;vertical-align:middle;margin-right:6px;border-radius:2px"></span>Natural drainage<br>
+      <span style="display:inline-block;width:18px;height:3px;background:#7F77DD;vertical-align:middle;margin-right:6px;border-radius:2px;border-top:2px dashed #7F77DD;height:0"></span>Proposed drain<br>
+      <span style="display:inline-block;width:12px;height:12px;background:rgba(216,90,48,0.3);border:1.5px solid #D85A30;vertical-align:middle;margin-right:6px;border-radius:2px"></span>Waterlogging zone`;
+    return d;
+  };
+  legend.addTo(leafletMap);
+}
+
+// ── Layer toggles ─────────────────────────────────────────────────────────
+function toggleLayer(key) {
+  const tog = document.getElementById('tog-' + key);
+  layerOn[key] = !layerOn[key];
+  if(tog) tog.classList.toggle('on', layerOn[key]);
+  if (!leafletMap || !mapLayers[key]) return;
+  if (layerOn[key]) leafletMap.addLayer(mapLayers[key]);
+  else              leafletMap.removeLayer(mapLayers[key]);
+}
+
+// ── Downloads ─────────────────────────────────────────────────────────────
+function downloadZip() {
+  if (!jobId) return;
+  addLog('ok', 'Downloading SMART_DRAIN_outputs.zip…');
+  window.location.href = '/download/' + jobId;
+}
+async function downloadGeoJSON() {
+  if (!jobId || !Object.keys(geojsonPaths).length) return;
+  for (const [key, url] of Object.entries(geojsonPaths)) {
+    const r = await fetch(url);
+    if (!r.ok) continue;
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = key + '.geojson';
+    a.click();
+    await new Promise(r => setTimeout(r, 300));
+  }
+  addLog('ok', 'GeoJSON files downloaded');
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────
+function setStep(idx, state, time) {
+  const icon = document.getElementById('icon-' + idx);
+  icon.className = 'step-icon ' + state;
+  const icons = ['ti-cloud-upload','ti-cpu','ti-topology-ring-2','ti-droplets','ti-map-2','ti-package'];
+  if (state === 'done')    icon.innerHTML = '<i class="ti ti-check"></i>';
+  else if (state === 'running') icon.innerHTML = '<i class="ti ti-loader"></i>';
+  else if (state === 'error')   icon.innerHTML = '<i class="ti ti-x"></i>';
+  else                          icon.innerHTML = `<i class="ti ${icons[idx]}"></i>`;
+  if (time) document.getElementById('time-' + idx).textContent = time;
+}
+function focusStep(idx) {
+  document.querySelectorAll('.step').forEach((s, i) =>
+    s.classList.toggle('active', i === idx));
+}
+function setProgress(pct) {
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+let logT0 = Date.now();
+function addLog(level, msg) {
+  const panel = document.getElementById('logPanel');
+  const sec = ((Date.now() - logT0) / 1000).toFixed(1).padStart(5, '0') + 's';
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  const cls = { ok: 'log-ok', info: 'log-info', warn: 'log-warn', err: 'log-err' }[level] || 'log-info';
+  line.innerHTML = `<span class="log-t">${sec}</span><span class="${cls}">${escHtml(msg)}</span>`;
+  panel.appendChild(line);
+  panel.scrollTop = panel.scrollHeight;
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function showOverlay(title, sub) {
+  document.getElementById('overlayTitle').textContent = title;
+  document.getElementById('overlaySub').textContent   = sub || '';
+  document.getElementById('overlay').classList.add('show');
+  setProgress(5);
+}
+function hideOverlay() { document.getElementById('overlay').classList.remove('show'); }
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 3500);
+}
+
+// ── Init map shell (with Satellite Toggle) ─────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  
+  // 1. Define the Standard Street Map
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 20
+  });
+
+  // 2. Define High-Res Satellite Imagery (Esri World Imagery)
+  const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles © Esri',
+    maxZoom: 20
+  });
+
+  // 3. Initialize Map with Satellite as the Default Layer
+  leafletMap = L.map('map', { 
+    preferCanvas: true, 
+    zoomControl: true,
+    layers: [satellite] // Default to satellite!
+  }).setView([26.8467, 80.9462], 13);
+
+  // 4. Add the Toggle Control to the top right
+  const baseMaps = {
+    "Satellite View": satellite,
+    "Street Map": osm
+  };
+  L.control.layers(baseMaps, null, {position: 'topright'}).addTo(leafletMap);
+
+  mapReady = true;
+  logT0 = Date.now();
+});
+</script>
+</body>
+</html>
