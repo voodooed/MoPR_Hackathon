@@ -10,3 +10,29 @@ whitebox>=2.3            # WhiteboxTools hydrological engine
 fiona>=1.9               # shapefile → GeoJSON conversion
 shapely>=2.0             # geometry operations
 pyproj>=3.6              # CRS reprojection to WGS84
+matplotlib>=3.5          # required for scipy ConvexHull pathing
+reportlab>=3.6           # required for pipeline outputs
+
+# Deep Learning
+torch
+torchvision
+torchaudio
+tqdm
+scikit-learn
+seaborn
+
+# RandLA-Net related
+mlflow>=2.0
+pandas>=2.0
+pyyaml>=6.0
+h5py>=3.9
+tensorboard>=2.15
+open3d>=0.18
+numba>=0.59
+joblib>=1.3
+k3d
+
+# Optional but commonly required
+easydict
+hydra-core
+omegaconf
