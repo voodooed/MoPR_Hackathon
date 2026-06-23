@@ -1,10 +1,9 @@
-<!-- @Voodoo/*19062026 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SMART-DRAIN — Command Center</title>
+<title>SMART-DRAIN</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/tabler-icons.min.css">
 <style>
@@ -50,16 +49,6 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
 /* ── Layout ────────────────────────────────────────────────── */
 .shell { display: flex; height: 100vh; }
 
-/* ── Topbar (Updated Branding) ─────────────────────────────── */
-.topbar {
-  position: absolute; top: 0; left: 280px; right: 0; height: 56px; z-index: 1000;
-  display: flex; align-items: center; justify-content: flex-end; padding: 0 20px;
-  background: transparent; pointer-events: none;
-}
-.topbar-right { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
-.badge { font-size: 11px; padding: 5px 12px; border-radius: 99px; background: var(--bg); color: var(--primary-d); font-weight: 600; box-shadow: var(--shadow); border: 1px solid var(--border); }
-.badge-gray { color: var(--text-muted); }
-
 /* ── Dark Sidebar ──────────────────────────────────────────── */
 .sidebar {
   width: 280px; flex-shrink: 0;
@@ -77,14 +66,14 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
 .brand-text h1 { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; margin: 0; color: #fff; }
 .brand-text p { font-size: 10px; color: var(--side-muted); margin: 2px 0 0 0; text-transform: uppercase; letter-spacing: 0.5px;}
 
-/* Upload zone (BUG FIXED) */
+/* Upload zone */
 .upload-zone {
   margin: 20px; border: 2px dashed var(--side-border); border-radius: var(--radius);
   padding: 24px 15px; text-align: center; cursor: pointer; transition: all .2s ease;
   background: rgba(255,255,255,0.02);
 }
 .upload-zone:hover, .upload-zone.drag { background: rgba(16,185,129,0.1); border-color: var(--primary); }
-.upload-zone input[type=file] { display: none; } /* Completely hidden to prevent overlap bugs */
+.upload-zone input[type=file] { display: none; }
 .upload-icon { font-size: 32px; color: var(--primary); margin-bottom: 8px; }
 .upload-title { font-size: 14px; font-weight: 600; color: var(--side-text); }
 .upload-hint  { font-size: 12px; color: var(--side-muted); margin-top: 4px; }
@@ -111,8 +100,8 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
 .step-time  { font-size: 11px; color: var(--primary); font-family: var(--mono); }
 .connector { width: 2px; height: 12px; background: var(--side-border); margin: 2px 0 2px 23px; }
 
-/* Sidebar Button */
-.run-wrap { padding: 20px; border-top: 1px solid var(--side-border); background: var(--side-bg); }
+/* Sidebar Buttons & Footer */
+.run-wrap { padding: 20px; background: var(--side-bg); }
 .btn {
   width: 100%; padding: 12px; border-radius: var(--radius); border: none; cursor: pointer;
   background: var(--primary); color: #fff; font-size: 14px; font-weight: 600;
@@ -123,6 +112,21 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
 .btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 .btn.done { background: var(--info); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
 
+/* Sidebar Bottom Team Section */
+.sidebar-footer {
+  padding: 15px 20px; border-top: 1px solid var(--side-border);
+  background: rgba(0, 0, 0, 0.15); text-align: center;
+}
+.btn-team {
+  width: 100%; padding: 8px; border-radius: 6px;
+  border: 1px solid var(--primary); background: transparent; color: var(--primary);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: all 0.2s; margin-bottom: 12px;
+}
+.btn-team:hover { background: rgba(16, 185, 129, 0.1); }
+.sidebar-footer p { margin: 0; font-size: 10px; color: var(--side-muted); line-height: 1.5; letter-spacing: 0.5px; }
+
 /* ── Main Area (Full Bleed Map) ────────────────────────────── */
 .main { flex: 1; position: relative; display: flex; flex-direction: column; min-width: 0; background: #e5e7eb; }
 .map-wrap { flex: 1; position: relative; }
@@ -130,7 +134,7 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
 
 /* Floating Glass Toolbar */
 .floating-toolbar {
-  position: absolute; top: 60px; left: 20px; right: 20px; z-index: 1000;
+  position: absolute; top: 20px; left: 20px; right: 20px; z-index: 1000;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   background: var(--bg-glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   padding: 12px 20px; border-radius: 12px; box-shadow: var(--shadow-lg); border: 1px solid rgba(255,255,255,0.4);
@@ -181,7 +185,8 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
 
 /* Terminal Log Panel */
 .terminal-wrapper {
-  height: 180px; flex-shrink: 0; background: var(--term-bg);
+  height: 140px; /* Reduced to maximize map visibility */
+  flex-shrink: 0; background: var(--term-bg);
   border-top: 1px solid #333; display: flex; flex-direction: column; z-index: 100;
 }
 .terminal-header {
@@ -328,8 +333,8 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
       <div class="step" id="step-3" onclick="focusStep(3)">
         <div class="step-icon" id="icon-3"><i class="ti ti-ripple"></i></div>
         <div class="step-body">
-          <div class="step-label">Hydrological AI</div>
-          <div class="step-sub">Flow & Sink Simulation</div>
+          <div class="step-label">Hydrological Analysis</div>
+          <div class="step-sub">Flow Routing & Depression Filling</div>
         </div>
         <span class="step-time" id="time-3"></span>
       </div>
@@ -360,29 +365,26 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
         <i class="ti ti-cloud-upload"></i> Upload & Initialize
       </button>
     </div>
+    
+    <div class="sidebar-footer">
+      <button class="btn-team" onclick="openTeamModal()">
+        <i class="ti ti-users"></i> Meet the Team
+      </button>
+      <p>MoPR Hackathon 2026<br>Geoinformatics Lab, IIT Kanpur</p>
+    </div>
   </div>
 
   <div class="main">
     
-    <div class="topbar">
-      <div class="topbar-right">
-        <button class="btn-sm" style="border-color: var(--primary); color: var(--primary);" onclick="openTeamModal()">
-          <i class="ti ti-users" style="font-size:14px"></i> Meet the Team
-        </button>
-        <span class="badge">MoPR Hackathon 2026</span>
-        <span class="badge badge-gray">Developed at Geoinformatics Lab, IIT Kanpur</span>
-      </div>
-    </div>
-    
     <div class="floating-toolbar">
       <button class="layer-tog on drain" id="tog-drain" onclick="toggleLayer('drain')">
-        <div class="layer-dot" style="background:var(--primary)"></div> Natural Flow Paths
+        <div class="layer-dot" style="background:var(--primary)"></div> Natural Drainage Network
       </button>
       <button class="layer-tog on hotspot" id="tog-hotspot" onclick="toggleLayer('hotspot')">
-        <div class="layer-dot" style="background:var(--danger)"></div> Risk Zones
+        <div class="layer-dot" style="background:var(--danger)"></div> Waterlogging Zones
       </button>
       <button class="layer-tog on altdrain" id="tog-altdrain" onclick="toggleLayer('altdrain')">
-        <div class="layer-dot" style="background:var(--purple)"></div> Proposed Infrastructure
+        <div class="layer-dot" style="background:var(--purple)"></div> Proposed Drainage Network
       </button>
       
       <div class="toolbar-gap"></div>
@@ -424,12 +426,12 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
           <div class="stat-unit">RandLA-Net Ground</div>
         </div>
         <div class="stat-card c-red">
-          <div class="stat-label">Critical Zones</div>
+          <div class="stat-label">Waterlogging Zones</div>
           <div class="stat-val" id="sv-hot">--</div>
           <div class="stat-unit">Waterlogging Hotspots</div>
         </div>
         <div class="stat-card c-purple">
-          <div class="stat-label">Infrastructure</div>
+          <div class="stat-label">Proposed Drainage</div>
           <div class="stat-val" id="sv-drain">--</div>
           <div class="stat-unit">km Proposed Drains</div>
         </div>
@@ -536,8 +538,7 @@ let visualData   = null;
 let t0           = null;
 const stageStart = {};
 
-// ── File handling (BUG FIXED) ──────────────────────────────────────────────
-// Now Javascript handles the click, preventing the invisible input overlay issue.
+// ── File handling ──────────────────────────────────────────────
 document.getElementById('uploadZone').addEventListener('click', () => {
     document.getElementById('fileInput').click();
 });
@@ -565,8 +566,6 @@ function acceptFile(f) {
   const btn = document.getElementById('runBtn');
   btn.disabled = false;
   btn.innerHTML = '<i class="ti ti-cloud-upload"></i> Upload to Server';
-  
-  // Cleanly attach upload function
   btn.onclick = (e) => startUpload(e);
   
   setStep(0, 'done', '—');
@@ -776,7 +775,7 @@ const altStyle = () => ({ color: '#8B5CF6', weight: 3, opacity: 1, dashArray: '6
 
 function drainPopup(p) {
   return `<div style="font-size:12px;min-width:140px; font-family:'Inter',sans-serif">
-    <b style="color:#10B981"><i class="ti ti-droplet"></i> Natural Flow Path</b><br>
+    <b style="color:#10B981"><i class="ti ti-droplet"></i> Natural Drainage Channel</b><br>
     ${p.order ? 'Stream Order: ' + p.order + '<br>' : ''}
     ${p.length_m ? 'Length: <b>' + p.length_m + ' m</b>' : ''}
   </div>`;
@@ -784,16 +783,18 @@ function drainPopup(p) {
 function hotPopup(p) {
   const riskColor = p.risk === 'High' ? '#EF4444' : p.risk === 'Low' ? '#10B981' : '#F59E0B';
   return `<div style="font-size:12px;min-width:160px; font-family:'Inter',sans-serif">
-    <b style="color:${riskColor}">● ${p.risk || 'Medium'} Risk Zone</b><br>
+    <b style="color:${riskColor}">● ${p.risk || 'Medium'} Waterlogging Zone</b><br>
     ${p.area_ha ? 'Impact Area: ' + p.area_ha + ' ha<br>' : ''}
     ${p.households ? 'Households Affected: <b>' + p.households + '</b>' : ''}
   </div>`;
 }
 function altPopup(p) {
   return `<div style="font-size:12px;min-width:150px; font-family:'Inter',sans-serif">
-    <b style="color:#8B5CF6"><i class="ti ti-tools"></i> Proposed Drain</b><br>
+    <b style="color:#8B5CF6"><i class="ti ti-tools"></i> Proposed Drain ${p.drain_id ? '#' + p.drain_id : ''}</b><br>
     ${p.priority ? 'Build Priority: <b>Phase ' + p.priority + '</b><br>' : ''}
-    ${p.cost_lakh ? 'Est. Cost: <b>₹' + p.cost_lakh + ' Lakh</b>' : ''}
+    ${p.severity !== undefined ? 'Severity Index: <b>' + p.severity + '</b><br>' : ''}
+    ${p.path_cells ? 'Path Length: <b>' + p.path_cells + ' cells</b><br>' : ''}
+    ${p.relative_cost !== undefined ? 'Relative Cost: <b>' + p.relative_cost + '</b>' : ''}
   </div>`;
 }
 
@@ -835,7 +836,6 @@ function openTeamModal() {
 function closeTeamModal() {
   document.getElementById('teamModal').classList.remove('show');
 }
-// Close modal if clicking outside the card
 document.getElementById('teamModal').addEventListener('click', function(e) {
   if (e.target === this) closeTeamModal();
 });

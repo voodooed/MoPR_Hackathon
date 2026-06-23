@@ -10,7 +10,11 @@ from flask import (Flask, request, jsonify, send_file,
                    Response, render_template_string, stream_with_context)
 import matplotlib.pyplot as plt
 
-# ── optional heavy imports (caught gracefully so the server still starts) ──
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+# -- optional heavy imports (caught gracefully so the server still starts) --
 try:
     import laspy
     HAS_LASPY = True
@@ -19,7 +23,7 @@ except ImportError:
 
 try:
     import rasterio
-    from rasterio.transform import from_origin
+    from rasterio.transform import from_origin, xy as rio_xy
     from rasterio.warp import calculate_default_transform, reproject, Resampling
     HAS_RASTERIO = True
 except ImportError:
@@ -40,14 +44,25 @@ except ImportError:
     HAS_WHITEBOX = False
 
 try:
+    from skimage.graph import MCP_Geometric
+    HAS_SKIMAGE = True
+except ImportError:
+    HAS_SKIMAGE = False
+
+try:
+    from pyproj import Transformer
+    HAS_PYPROJ = True
+except ImportError:
+    HAS_PYPROJ = False
+
+try:
     import fiona
     import shapely.geometry as sg
-    from pyproj import Transformer
     HAS_FIONA = True
 except ImportError:
     HAS_FIONA = False
 
-# ─────────────────────────── App setup ────────────────────────────────────
+# --------------------------- App setup ------------------------------------
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024   # 2 GB
 
@@ -59,7 +74,7 @@ os.makedirs(OUTPUT_BASE, exist_ok=True)
 
 MODEL_PATH = os.path.abspath("data/saved_models/MoPR_whole/")
 
-# ─────────────────────────── Helpers ──────────────────────────────────────
+# --------------------------- Helpers --------------------------------------
 
 def new_job(filename: str) -> str:
     jid = str(uuid.uuid4())[:8]
@@ -92,10 +107,10 @@ def raster_to_png(tif_path, png_path, colormap):
                 arr = np.ma.masked_equal(arr, nodata)
             elif np.isnan(arr).any():
                 arr = np.ma.masked_invalid(arr)
-            
+
             try:
-                from pyproj import Transformer
-                tr = Transformer.from_crs(src.crs or "EPSG:32643", "EPSG:4326", always_xy=True)
+                from pyproj import Transformer as _Tr
+                tr = _Tr.from_crs(src.crs or "EPSG:32643", "EPSG:4326", always_xy=True)
                 b = src.bounds
                 minx, miny = tr.transform(b.left, b.bottom)
                 maxx, maxy = tr.transform(b.right, b.top)
@@ -109,12 +124,12 @@ def raster_to_png(tif_path, png_path, colormap):
         print(f"Error rendering {tif_path}: {e}")
         return None
 
-# ─────────────────────────── Pipeline stages ──────────────────────────────
+# --------------------------- Pipeline stages ------------------------------
 
 def stage_classify(jid: str, laz_path: str, out_dir: str) -> str:
-    emit(jid, "log", {"msg": "Loading point cloud …", "level": "info"})
+    emit(jid, "log", {"msg": "Loading point cloud ...", "level": "info"})
     if not HAS_LASPY:
-        raise RuntimeError("laspy not installed – run: pip install laspy[lazrs]")
+        raise RuntimeError("laspy not installed - run: pip install laspy[lazrs]")
 
     las = laspy.read(laz_path)
     total_pts = len(las.x)
@@ -124,7 +139,7 @@ def stage_classify(jid: str, laz_path: str, out_dir: str) -> str:
     model_found = os.path.isdir(MODEL_PATH)
 
     if model_found:
-        emit(jid, "log", {"msg": "Model found – running RandLA-Net segmentation …", "level": "info"})
+        emit(jid, "log", {"msg": "Model found - running RandLA-Net segmentation ...", "level": "info"})
         try:
             pc_tmp = os.path.join(out_dir, "pc_id=1")
             os.makedirs(os.path.join(pc_tmp, "metadata"), exist_ok=True)
@@ -136,12 +151,10 @@ def stage_classify(jid: str, laz_path: str, out_dir: str) -> str:
             except AttributeError:
                 rgb = np.zeros((len(las.x), 3), dtype=np.float32)
 
-            # Save pc.pickle
             with open(os.path.join(pc_tmp, "pc.pickle"), "wb") as f:
-                # THE FIX: Give the dataloader a dummy labels array so it doesn't crash
                 pkl.dump({
-                    "xyz": xyz, 
-                    "rgb": rgb, 
+                    "xyz": xyz,
+                    "rgb": rgb,
                     "labels": np.zeros(len(xyz), dtype=np.uint8)
                 }, f)
             with open(os.path.join(pc_tmp, "metadata", "metadata.pickle"), "wb") as f:
@@ -177,17 +190,17 @@ def stage_classify(jid: str, laz_path: str, out_dir: str) -> str:
             las_out.write(classified_path)
 
             ground_pct = float((labels == 1).sum() / len(labels) * 100)
-            emit(jid, "log", {"msg": f"Classification done – ground: {ground_pct:.1f}%", "level": "ok"})
+            emit(jid, "log", {"msg": f"Classification done - ground: {ground_pct:.1f}%", "level": "ok"})
             JOBS[jid]["stats"]["total_pts"] = total_pts
             JOBS[jid]["stats"]["ground_pct"] = round(ground_pct, 1)
             JOBS[jid]["stats"]["accuracy"] = "95.2%"
 
         except Exception as e:
-            emit(jid, "log", {"msg": f"Model run failed ({e}) – using file classification field", "level": "warn"})
+            emit(jid, "log", {"msg": f"Model run failed ({e}) - using file classification field", "level": "warn"})
             model_found = False
 
     if not model_found:
-        emit(jid, "log", {"msg": "Using existing classification field in file …", "level": "info"})
+        emit(jid, "log", {"msg": "Using existing classification field in file ...", "level": "info"})
         try:
             labels = np.array(las.classification)
         except AttributeError:
@@ -207,16 +220,21 @@ def stage_classify(jid: str, laz_path: str, out_dir: str) -> str:
         JOBS[jid]["stats"]["total_pts"] = total_pts
         JOBS[jid]["stats"]["ground_pct"] = round(ground_pct, 1)
         JOBS[jid]["stats"]["accuracy"] = "N/A (passthrough)"
-        #JOBS[jid]["stats"]["accuracy"] = "95.2%"
-        emit(jid, "log", {"msg": f"Passthrough complete – ground: {ground_pct:.1f}%", "level": "ok"})
+        emit(jid, "log", {"msg": f"Passthrough complete - ground: {ground_pct:.1f}%", "level": "ok"})
 
     return classified_path
 
-def stage_dtm(jid: str, classified_laz: str, out_dir: str, resolution: float = 0.5) -> str:
+
+def stage_dtm(jid: str, classified_laz: str, out_dir: str, resolution: float = 1.0) -> str:
+    """
+    resolution=1.0 m is a compromise between map detail and building-void
+    artifacts. The repo's reference las2cog.py uses 5m; raise towards that
+    if buildings still appear in the waterlogging index after these fixes.
+    """
     if not HAS_LASPY or not HAS_RASTERIO or not HAS_SCIPY:
         raise RuntimeError("Missing: laspy, rasterio, or scipy")
 
-    emit(jid, "log", {"msg": "Extracting ground points …", "level": "info"})
+    emit(jid, "log", {"msg": "Extracting ground points ...", "level": "info"})
     las = laspy.read(classified_laz)
     mask = np.array(las.classification) == 1
     x, y, z = np.array(las.x)[mask], np.array(las.y)[mask], np.array(las.z)[mask]
@@ -225,7 +243,7 @@ def stage_dtm(jid: str, classified_laz: str, out_dir: str, resolution: float = 0
         emit(jid, "log", {"msg": "No class-1 ground found; using all points for DTM", "level": "warn"})
         x, y, z = np.array(las.x), np.array(las.y), np.array(las.z)
 
-    emit(jid, "log", {"msg": f"Rasterising {len(z):,} ground pts at {resolution} m resolution …", "level": "info"})
+    emit(jid, "log", {"msg": f"Rasterising {len(z):,} ground pts at {resolution} m resolution ...", "level": "info"})
 
     nodata = -9999.0
     xmin, xmax = x.min(), x.max()
@@ -251,10 +269,15 @@ def stage_dtm(jid: str, classified_laz: str, out_dir: str, resolution: float = 0
         inside = np.ones((nrows, ncols), dtype=bool)
 
     nan_mask = np.isnan(dem)
-    indices = ndimage.distance_transform_edt(nan_mask, return_distances=False, return_indices=True)
-    dem = dem[tuple(indices)]
-    dem = ndimage.gaussian_filter(dem.astype(np.float64), sigma=1).astype(np.float32)
-    dem[~inside] = nodata
+
+    # --- BUILDING OBSTACLE CAPTURE ---
+    # Building footprints show up as data voids (no ground returns under a
+    # roof). Capture them BEFORE gap-filling, with a 1-pixel dilation
+    # buffer since LiDAR edge returns near a building's perimeter are noisy
+    # and the true footprint is usually slightly larger than the raw void.
+    raw_voids = ndimage.binary_opening(nan_mask & inside, structure=np.ones((3, 3)))
+    building_voids = ndimage.binary_dilation(raw_voids, structure=np.ones((3, 3)), iterations=1)
+    obs_path = os.path.join(out_dir, "obstacles.tif")
 
     crs_wkt = None
     try:
@@ -263,50 +286,90 @@ def stage_dtm(jid: str, classified_laz: str, out_dir: str, resolution: float = 0
         crs_wkt = "EPSG:32643"
 
     transform = from_origin(xmin, ymax, resolution, resolution)
-    dtm_path = os.path.join(out_dir, "DTM.tif")
 
+    with rasterio.open(obs_path, "w", driver="GTiff", height=nrows, width=ncols, count=1,
+                       dtype=np.float32, crs=crs_wkt, transform=transform, nodata=nodata, compress="deflate") as dst:
+        dst.write(building_voids.astype(np.float32), 1)
+
+    emit(jid, "log", {"msg": f"Captured {int(building_voids.sum())} building-obstacle pixels "
+                              f"({100*building_voids.sum()/building_voids.size:.1f}% of grid)", "level": "info"})
+    # ----------------------------------
+
+    indices = ndimage.distance_transform_edt(nan_mask, return_distances=False, return_indices=True)
+    dem = dem[tuple(indices)]
+    dem = ndimage.gaussian_filter(dem.astype(np.float64), sigma=1).astype(np.float32)
+    dem[~inside] = nodata
+
+    dtm_path = os.path.join(out_dir, "DTM.tif")
     with rasterio.open(dtm_path, "w", driver="GTiff", height=nrows, width=ncols, count=1, dtype=np.float32,
                        crs=crs_wkt, transform=transform, nodata=nodata, compress="deflate") as dst:
         dst.write(dem, 1)
 
-    emit(jid, "log", {"msg": f"DTM saved ({nrows}×{ncols} px, {resolution} m/px)", "level": "ok"})
+    emit(jid, "log", {"msg": f"DTM saved ({nrows}x{ncols} px, {resolution} m/px)", "level": "ok"})
     return dtm_path
 
+
 def stage_hydrology(jid: str, dtm_path: str, out_dir: str) -> dict:
+    """
+    Hydrology + proposed-drainage pipeline.
+
+    Everything through HAND/waterlogging-index uses WhiteboxTools as before
+    (fill_depressions, d8_pointer, d8_flow_accumulation, slope,
+    wetness_index, extract_streams, elevation_above_stream) - none of those
+    tools showed any bug.
+
+    The "Proposed Infrastructure" / alternate-drainage step is rebuilt from
+    scratch using scikit-image's MCP_Geometric instead of WhiteboxTools'
+    cost_distance + cost_pathway pair. Verified directly against the real
+    whitebox binary: cost_pathway fills every off-path cell with the SAME
+    sentinel used for the cost surface's NoData (9999), and that sentinel
+    is not reliably tagged as real NoData in the output GeoTIFF header -
+    `drains > 0` (used throughout the repo's reference scripts) therefore
+    matches almost the entire raster, which is the root cause of every
+    "mesh covering the whole map" result so far. MCP_Geometric instead
+    returns the literal ordered list of (row, col) pixels making up each
+    path directly - no raster round-trip, no sentinel value to misread.
+
+    Building footprints are excluded from hotspot/target eligibility (they
+    are data-void artifacts in the DTM, not real waterlogged ground) but
+    still penalised in the cost surface so paths route AROUND them.
+    """
     if not HAS_WHITEBOX or not HAS_RASTERIO:
         raise RuntimeError("Missing: whitebox or rasterio")
+    if not HAS_SKIMAGE:
+        raise RuntimeError("Missing: scikit-image - run: pip install scikit-image")
 
-    out_dir = os.path.abspath(out_dir)
-    dtm_path = os.path.abspath(dtm_path)
+    out_dir = os.path.abspath(out_dir).replace("\\", "/")
+    dtm_path = os.path.abspath(dtm_path).replace("\\", "/")
 
     wbt = whitebox.WhiteboxTools()
     wbt.set_working_dir(out_dir)
-    wbt.verbose = True  
+    wbt.verbose = True
 
-    def p(name): return os.path.join(out_dir, name)
+    def p(name): return f"{out_dir}/{name}"
 
-    emit(jid, "log", {"msg": "Filling depressions …", "level": "info"})
+    emit(jid, "log", {"msg": "Filling depressions ...", "level": "info"})
     wbt.fill_depressions(dem=dtm_path, output=p("dtm_filled.tif"))
 
-    emit(jid, "log", {"msg": "Computing D8 flow direction …", "level": "info"})
+    emit(jid, "log", {"msg": "Computing D8 flow direction ...", "level": "info"})
     wbt.d8_pointer(dem=p("dtm_filled.tif"), output=p("flow_dir.tif"))
 
-    emit(jid, "log", {"msg": "Computing flow accumulation …", "level": "info"})
+    emit(jid, "log", {"msg": "Computing flow accumulation ...", "level": "info"})
     wbt.d8_flow_accumulation(i=p("dtm_filled.tif"), output=p("flow_acc.tif"), out_type="cells")
 
-    emit(jid, "log", {"msg": "Computing slope …", "level": "info"})
+    emit(jid, "log", {"msg": "Computing slope ...", "level": "info"})
     wbt.slope(dem=p("dtm_filled.tif"), output=p("slope.tif"), units="degrees")
 
-    emit(jid, "log", {"msg": "Computing Topographic Wetness Index …", "level": "info"})
+    emit(jid, "log", {"msg": "Computing Topographic Wetness Index ...", "level": "info"})
     wbt.wetness_index(sca=p("flow_acc.tif"), slope=p("slope.tif"), output=p("twi.tif"))
 
-    emit(jid, "log", {"msg": "Extracting stream network …", "level": "info"})
-    wbt.extract_streams(flow_accum=p("flow_acc.tif"), output=p("streams.tif"), threshold=500)
+    emit(jid, "log", {"msg": "Extracting stream network ...", "level": "info"})
+    wbt.extract_streams(flow_accum=p("flow_acc.tif"), output=p("streams.tif"), threshold=1000)
 
-    emit(jid, "log", {"msg": "Computing HAND (height above nearest drainage) …", "level": "info"})
+    emit(jid, "log", {"msg": "Computing HAND (height above nearest drainage) ...", "level": "info"})
     wbt.elevation_above_stream(dem=p("dtm_filled.tif"), streams=p("streams.tif"), output=p("hand.tif"))
 
-    emit(jid, "log", {"msg": "Computing waterlogging index …", "level": "info"})
+    emit(jid, "log", {"msg": "Computing waterlogging index ...", "level": "info"})
 
     def load(path):
         with rasterio.open(path) as src:
@@ -324,11 +387,34 @@ def stage_hydrology(jid: str, dtm_path: str, out_dir: str) -> dict:
     twi_arr   = load(p("twi.tif"))
     hand_arr  = load(p("hand.tif"))
 
-    index = (norm(twi_arr) + (1 - norm(slope_arr)) + (1 - norm(dem_arr)) + (1 - norm(hand_arr))) / 4
+    with rasterio.open(p("dtm_filled.tif")) as src:
+        raster_transform = src.transform
+        raster_crs = src.crs
+
+    try:
+        obs_arr = load(p("obstacles.tif"))
+        obs_bin = obs_arr == 1
+    except Exception:
+        obs_arr = np.zeros_like(dem_arr)
+        obs_bin = np.zeros_like(dem_arr, dtype=bool)
+
+    twi_n   = norm(twi_arr)
+    slope_n = 1 - norm(slope_arr)
+    elev_n  = 1 - norm(dem_arr)
+    hand_n  = 1 - norm(hand_arr)
+
+    index = (twi_n + slope_n + elev_n + hand_n) / 4
     index[np.isnan(dem_arr)] = np.nan
 
     threshold = np.nanpercentile(index, 70)
     hotspots  = (index >= threshold).astype(np.uint8)
+
+    n_hotspots_before = int(hotspots.sum())
+    n_hotspots_on_buildings = int((hotspots[obs_bin] == 1).sum()) if obs_bin.any() else 0
+    hotspots[obs_bin] = 0   # buildings can never be a hotspot/target
+    emit(jid, "log", {"msg": f"Hotspots before building exclusion: {n_hotspots_before} "
+                              f"({n_hotspots_on_buildings} were on building footprints, now removed)",
+                       "level": "info"})
 
     with rasterio.open(p("dtm_filled.tif")) as src: meta = src.meta.copy()
 
@@ -341,57 +427,161 @@ def stage_hydrology(jid: str, dtm_path: str, out_dir: str) -> dict:
         dst.write(hotspots, 1)
 
     emit(jid, "log", {"msg": "Waterlogging index + hotspot rasters saved", "level": "ok"})
-    emit(jid, "log", {"msg": "Computing cost surface + alternative drainage paths …", "level": "info"})
+    emit(jid, "log", {"msg": "Computing cost surface ...", "level": "info"})
 
     streams_arr = load(p("streams.tif"))
     streams_bin = streams_arr > 0
     unconnected = (hotspots == 1) & (~streams_bin)
 
-    cost = 0.5 * norm(slope_arr) + 0.3 * (1 - norm(hand_arr)) + 0.2 * (1 - norm(dem_arr))
-    cost = np.nan_to_num(cost, nan=9999.0)
+    cost = 0.5 * slope_n + 0.3 * hand_n + 0.2 * elev_n
+    cost[obs_bin] += 1000.0           # discourage routing THROUGH a building
+    cost[np.isnan(dem_arr)] = np.inf   # outside the scanned area is impassable
 
-    meta_cost = meta.copy()
-    meta_cost.update(dtype="float32", nodata=9999)
-    with rasterio.open(p("cost.tif"), "w", **meta_cost) as dst:
-        dst.write(cost.astype("float32"), 1)
+    # -- Cluster unconnected hotspots into distinct risk zones --
+    MIN_CLUSTER_PIXELS = 5
+    MAX_PROPOSED_DRAINS = 30
 
-    meta_unc = meta.copy()
-    meta_unc.update(dtype="int32", nodata=0)
-    with rasterio.open(p("targets.tif"), "w", **meta_unc) as dst:
-        dst.write(unconnected.astype("int32"), 1)
+    labeled, n_clusters_raw = ndimage.label(unconnected, structure=np.ones((3, 3)))
+    sizes = ndimage.sum(unconnected, labeled, index=np.arange(1, n_clusters_raw + 1)) if n_clusters_raw > 0 else np.array([])
 
-    wbt.cost_distance(source=p("streams.tif"), cost=p("cost.tif"), out_accum=p("cost_dist.tif"), out_backlink=p("backlink.tif"))
+    clusters = []  # (severity, row, col, size)
+    for cid, size in enumerate(sizes, start=1):
+        if size < MIN_CLUSTER_PIXELS:
+            continue
+        mask = labeled == cid
+        masked_index = np.where(mask, index, -np.inf)
+        flat_idx = int(np.argmax(masked_index))
+        r, c = np.unravel_index(flat_idx, index.shape)
+        clusters.append((float(index[r, c]), int(r), int(c), int(size)))
 
-    if os.path.exists(p("backlink.tif")):
-        wbt.cost_pathway(destination=p("targets.tif"), backlink=p("backlink.tif"), output=p("drain_alternative.tif"))
-        drain_arr = load(p("drain_alternative.tif"))
-        drain_bin = (drain_arr > 0).astype("int32")
-        with rasterio.open(p("drain_alternative.tif")) as src: prof = src.profile.copy()
-        prof.update(dtype="int32", nodata=0)
-        with rasterio.open(p("drain_streams_clean.tif"), "w", **prof) as dst:
-            dst.write(drain_bin, 1)
-        emit(jid, "log", {"msg": "Alternative drainage paths computed", "level": "ok"})
+    clusters.sort(key=lambda t: t[0], reverse=True)
+    clusters = clusters[:MAX_PROPOSED_DRAINS]
+
+    emit(jid, "log", {"msg": f"Found {n_clusters_raw} raw hotspot clusters, "
+                              f"selected {len(clusters)} for proposed drainage", "level": "ok"})
+
+    drain_paths = []   # list of dicts: {pixels, severity, cum_cost, size}
+
+    if clusters and streams_bin.any():
+        stream_rows, stream_cols = np.where(streams_bin)
+        starts = list(zip(stream_rows.tolist(), stream_cols.tolist()))
+        ends = [(r, c) for (_, r, c, _) in clusters]
+
+        emit(jid, "log", {"msg": f"Tracing {len(ends)} least-cost paths "
+                                  f"from {len(starts)} natural-network source cells ...", "level": "info"})
+
+        mcp = MCP_Geometric(cost.astype("float64"), fully_connected=True)
+        cum_costs, _ = mcp.find_costs(starts, ends)
+
+        for (severity, r, c, size) in clusters:
+            try:
+                pixels = mcp.traceback((r, c))
+            except Exception as e:
+                emit(jid, "log", {"msg": f"Path trace failed for cluster at ({r},{c}): {e}", "level": "warn"})
+                continue
+            drain_paths.append({
+                "pixels": pixels,
+                "severity": severity,
+                "cum_cost": float(cum_costs[r, c]),
+                "size": size,
+            })
+
+        emit(jid, "log", {"msg": f"Traced {len(drain_paths)} drain paths "
+                                  f"({sum(len(d['pixels']) for d in drain_paths)} pixels total)", "level": "ok"})
     else:
-        emit(jid, "log", {"msg": "Cost pathway skipped (no backlink)", "level": "warn"})
+        emit(jid, "log", {"msg": "No qualifying clusters or no natural stream network found - "
+                                  "skipping proposed drainage", "level": "warn"})
 
-    emit(jid, "log", {"msg": "Vectorising rasters → shapefiles …", "level": "info"})
-    for raster, shp in [("streams.tif", "natural_drainage.shp"), ("hotspots.tif", "hotspots.shp"), ("waterlogging_index.tif","waterlogging_index.shp")]:
+    # Real path length in metres: sum actual cell-to-cell distance per path
+    # (resolution for straight steps, resolution*sqrt(2) for diagonal steps),
+    # not a guessed multiplier.
+    res_x = abs(raster_transform.a)
+    res_y = abs(raster_transform.e)
+    total_length_m = 0.0
+    for d in drain_paths:
+        pts = d["pixels"]
+        for (r0, c0), (r1, c1) in zip(pts[:-1], pts[1:]):
+            dr, dc = abs(r1 - r0), abs(c1 - c0)
+            total_length_m += ((dr * res_y) ** 2 + (dc * res_x) ** 2) ** 0.5
+
+    JOBS[jid]["stats"]["proposed_drains"] = len(drain_paths)
+    JOBS[jid]["stats"]["hotspot_clusters_raw"] = int(n_clusters_raw)
+    JOBS[jid]["stats"]["drain_km"] = round(total_length_m / 1000.0, 2)
+
+    pixel_size_m = abs(raster_transform.a)
+    total_path_pixels = sum(len(d["pixels"]) for d in drain_paths)
+    JOBS[jid]["stats"]["drain_km"] = round(total_path_pixels * pixel_size_m / 1000, 2)
+
+    # -- Build the proposed-drainage raster directly from the traced paths --
+    # (no sentinel ambiguity possible - every "1" cell here is a pixel we
+    # explicitly put there ourselves)
+    drain_bin = np.zeros_like(unconnected, dtype=np.int32)
+    for d in drain_paths:
+        for (r, c) in d["pixels"]:
+            drain_bin[r, c] = 1
+
+    meta_drain = meta.copy()
+    meta_drain.update(dtype="int32", nodata=0)
+    with rasterio.open(p("drain_streams_clean.tif"), "w", **meta_drain) as dst:
+        dst.write(drain_bin, 1)
+
+    # -- Build the proposed-drainage GeoJSON directly from the traced paths --
+    # (skips shapefile vectorisation entirely for this layer - WBT's
+    # raster_streams_to_vector expects streams aligned with the D8 flow
+    # direction raster, which these least-cost paths are NOT, so feeding it
+    # through there was always going to risk distortion/fragmentation)
+    alt_drainage_geojson_path = p("alt_drainage.geojson")
+    if drain_paths and HAS_PYPROJ:
+        tr = Transformer.from_crs(raster_crs or "EPSG:32643", "EPSG:4326", always_xy=True)
+        features = []
+        for i, d in enumerate(sorted(drain_paths, key=lambda x: x["severity"], reverse=True), start=1):
+            coords = []
+            for (r, c) in d["pixels"]:
+                x, y = rio_xy(raster_transform, r, c)
+                lon, lat = tr.transform(x, y)
+                coords.append([lon, lat])
+            features.append({
+                "type": "Feature",
+                "properties": {
+                    "drain_id": i,
+                    "priority": i,
+                    "severity": round(d["severity"], 3),
+                    "length_px": d["size"],
+                    "path_cells": len(d["pixels"]),
+                    "relative_cost": round(d["cum_cost"], 1),
+                },
+                "geometry": {"type": "LineString", "coordinates": coords},
+            })
+        with open(alt_drainage_geojson_path, "w") as f:
+            json.dump({"type": "FeatureCollection", "features": features}, f)
+        emit(jid, "log", {"msg": f"Proposed drainage GeoJSON written ({len(features)} lines)", "level": "ok"})
+    elif drain_paths and not HAS_PYPROJ:
+        emit(jid, "log", {"msg": "pyproj not installed - cannot reproject proposed drainage to lon/lat. "
+                                  "Run: pip install pyproj", "level": "warn"})
+
+    emit(jid, "log", {"msg": "Vectorising natural drainage + hotspot rasters -> shapefiles ...", "level": "info"})
+    for raster, shp in [("streams.tif", "natural_drainage.shp"), ("hotspots.tif", "hotspots.shp"), ("waterlogging_index.tif", "waterlogging_index.shp")]:
         if os.path.exists(p(raster)):
             try: wbt.raster_to_vector_polygons(i=p(raster), output=p(shp))
             except Exception: pass
 
-    if os.path.exists(p("drain_streams_clean.tif")):
-        try: wbt.raster_streams_to_vector(streams=p("drain_streams_clean.tif"), d8_pntr=p("flow_dir.tif"), output=p("alternative_drainage.shp"))
-        except Exception: pass
-
     emit(jid, "log", {"msg": "Shapefiles saved", "level": "ok"})
     n_hotspots = int(hotspots.sum()) if hotspots.sum() < 99999 else int(np.count_nonzero(hotspots))
-    return {"hotspot_pixels": n_hotspots, "out_dir": out_dir}
+    return {"hotspot_pixels": n_hotspots, "proposed_drains": len(drain_paths), "out_dir": out_dir}
+
 
 def stage_geojson(jid: str, out_dir: str) -> dict:
     geojsons = {}
+
+    # The alternate-drainage layer is built directly as GeoJSON inside
+    # stage_hydrology now (in EPSG:4326 already) - just register it if present.
+    alt_path = os.path.join(out_dir, "alt_drainage.geojson")
+    if os.path.exists(alt_path):
+        geojsons["alt_drainage"] = alt_path
+        emit(jid, "log", {"msg": "GeoJSON registered: alt_drainage (built directly from traced paths)", "level": "ok"})
+
     if HAS_FIONA and HAS_RASTERIO:
-        from pyproj import Transformer
+        from pyproj import Transformer as _Tr
 
         def shp_to_geojson(shp_path, out_path):
             features = []
@@ -399,13 +589,13 @@ def stage_geojson(jid: str, out_dir: str) -> dict:
                 with fiona.open(shp_path) as src:
                     src_crs = src.crs
                     if not src_crs:
-                        src_crs = "EPSG:32643" 
-                    
+                        src_crs = "EPSG:32643"
+
                     try:
-                        tr = Transformer.from_crs(src_crs, "EPSG:4326", always_xy=True)
+                        tr = _Tr.from_crs(src_crs, "EPSG:4326", always_xy=True)
                         need_transform = True
                     except Exception:
-                        tr = Transformer.from_crs("EPSG:32643", "EPSG:4326", always_xy=True)
+                        tr = _Tr.from_crs("EPSG:32643", "EPSG:4326", always_xy=True)
                         need_transform = True
 
                     for feat in src:
@@ -431,7 +621,7 @@ def stage_geojson(jid: str, out_dir: str) -> dict:
             elif gt == "MultiPolygon": return [[[list(tr.transform(x, y)) for x, y in ring] for ring in poly] for poly in c]
             return c
 
-        for name, fname in [("drainage", "natural_drainage.shp"), ("hotspots", "hotspots.shp"), ("alt_drainage", "alternative_drainage.shp")]:
+        for name, fname in [("drainage", "natural_drainage.shp"), ("hotspots", "hotspots.shp")]:
             shp = os.path.join(out_dir, fname)
             out = os.path.join(out_dir, f"{name}.geojson")
             if os.path.exists(shp):
@@ -442,15 +632,17 @@ def stage_geojson(jid: str, out_dir: str) -> dict:
                 else:
                     emit(jid, "log", {"msg": f"GeoJSON conversion warning ({name}): {err}", "level": "warn"})
 
-    if not geojsons:
-        emit(jid, "log", {"msg": "Generating representative GeoJSON from DTM extent …", "level": "info"})
-        geojsons = _synthetic_geojson(jid, out_dir)
+    if "drainage" not in geojsons or "hotspots" not in geojsons:
+        emit(jid, "log", {"msg": "Generating representative GeoJSON for any missing layers ...", "level": "info"})
+        fallback = _synthetic_geojson(jid, out_dir)
+        for k, v in fallback.items():
+            geojsons.setdefault(k, v)
 
     return geojsons
 
 def _synthetic_geojson(jid, out_dir):
     dtm_path = os.path.join(out_dir, "DTM.tif")
-    cx, cy = 80.9462, 26.8467 
+    cx, cy = 80.9462, 26.8467
     crs_str = "EPSG:32643"
 
     if HAS_RASTERIO and os.path.exists(dtm_path):
@@ -460,8 +652,8 @@ def _synthetic_geojson(jid, out_dir):
             cy_proj = (b.bottom + b.top) / 2
             crs_str = str(src.crs)
         try:
-            from pyproj import Transformer
-            tr = Transformer.from_crs(crs_str, "EPSG:4326", always_xy=True)
+            from pyproj import Transformer as _Tr
+            tr = _Tr.from_crs(crs_str, "EPSG:4326", always_xy=True)
             cx, cy = tr.transform(cx_proj, cy_proj)
         except Exception:
             pass
@@ -505,13 +697,13 @@ def stage_zip(jid: str, out_dir: str) -> str:
     return zip_path
 
 def stage_visuals(jid: str, out_dir: str) -> dict:
-    emit(jid, "log", {"msg": "Generating intermediate layer visuals for map …", "level": "info"})
+    emit(jid, "log", {"msg": "Generating intermediate layer visuals for map ...", "level": "info"})
     visuals = {}
-    
+
     dtm_bounds = raster_to_png(os.path.join(out_dir, "DTM.tif"), os.path.join(out_dir, "vis_dtm.png"), "terrain")
     if dtm_bounds:
         visuals["dtm"] = {"url": f"/image/{jid}/vis_dtm.png", "bounds": dtm_bounds}
-        
+
     twi_bounds = raster_to_png(os.path.join(out_dir, "twi.tif"), os.path.join(out_dir, "vis_twi.png"), "Blues")
     if twi_bounds:
         visuals["twi"] = {"url": f"/image/{jid}/vis_twi.png", "bounds": twi_bounds}
@@ -519,7 +711,7 @@ def stage_visuals(jid: str, out_dir: str) -> dict:
     emit(jid, "log", {"msg": "Intermediate visuals ready", "level": "ok"})
     return visuals
 
-# ─────────────────────────── Main pipeline thread ─────────────────────────
+# --------------------------- Main pipeline thread -------------------------
 
 def run_pipeline(jid: str, laz_path: str):
     JOBS[jid]["status"] = "running"
@@ -549,14 +741,15 @@ def run_pipeline(jid: str, laz_path: str):
         emit(jid, "stage_done", {"stage": 5})
 
         stats = JOBS[jid]["stats"]
-        drain_count = len(json.load(open(geojsons.get("drainage", ""), errors="ignore"))["features"]) if "drainage" in geojsons else 0
+        drain_count = len(json.load(open(geojsons.get("alt_drainage", ""), errors="ignore"))["features"]) if "alt_drainage" in geojsons else 0
         hot_count = len(json.load(open(geojsons.get("hotspots", ""), errors="ignore"))["features"]) if "hotspots" in geojsons else 0
 
         emit(jid, "done", {
             "total_pts":   f'{stats.get("total_pts", 0):,}',
             "accuracy":    stats.get("accuracy", "N/A"),
             "hotspots":    str(hot_count),
-            "drain_km":    str(round(drain_count * 0.12, 1)),
+            "drain_count": str(stats.get("proposed_drains", drain_count)),
+            "drain_km":    str(stats.get("drain_km", 0)),
             "geojsons":    {k: f"/geojson/{jid}/{k}" for k in geojsons},
             "visuals":     visuals
         })
@@ -568,11 +761,11 @@ def run_pipeline(jid: str, laz_path: str):
         JOBS[jid]["status"] = "error"
         print(f"[JOB {jid}] ERROR:\n{tb}")
 
-# ─────────────────────────── Routes ───────────────────────────────────────
+# --------------------------- Routes ---------------------------------------
 
 @app.route("/")
 def index():
-    return render_template_string(open("index.html").read())
+    return render_template_string(open("index.html", encoding="utf-8").read())
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -584,7 +777,7 @@ def upload():
     save_path = os.path.join(UPLOAD_DIR, f"{jid}_{f.filename}")
     f.save(save_path)
     JOBS[jid]["upload_path"] = save_path
-    
+
     return jsonify({"job_id": jid})
 
 @app.route("/run/<jid>", methods=["POST"])
