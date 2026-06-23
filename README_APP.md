@@ -6,13 +6,17 @@ Upload a `.las`/`.laz` point cloud → get drainage maps on OpenStreetMap.
 
 ```bash
 # 1. Clone your pipeline repo (if not already)
-git clone https://github.com/moonis-ali/MoPR_Hackathon
+git clone https://github.com/voodooed/MoPR_Hackathon
 cd MoPR_Hackathon
 
 # 2. Copy the two web app files into the repo root
 #    app.py       ← Flask backend
 #    index.html   ← Frontend (served by Flask)
 #    requirements.txt
+
+# create a Virtual Enivironment
+ python -m venv venv_mopr
+ .\venv_mopr\Scripts\Activate.ps1
 
 # 3. Install dependencies
 pip install -r requirements.txt

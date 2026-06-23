@@ -210,7 +210,14 @@ wbt.cost_pathway(targets_tif, backlink, drain)
 check_file(drain, "CostPathway failed")
 
 drains = load_raster(drain)
-drains_bin = drains > 0
+# FIX: cost_pathway fills every "off-path" cell with the SAME sentinel used
+# for the cost surface's NoData (9999 here), and that sentinel is NOT
+# reliably tagged as real NoData in the output GeoTIFF header. `drains > 0`
+# therefore matches almost the entire raster, not just the genuine path
+# cells (since 9999 > 0 too) -- verified directly against the whitebox
+# binary. Destinations were written with value 1 in targets_tif, so check
+# for that exact value instead.
+drains_bin = drains == 1
 
 plt.imshow(dem, cmap="terrain", alpha=0.5)
 plt.imshow(streams_bin, cmap="Blues", alpha=0.5)

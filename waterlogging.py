@@ -243,7 +243,14 @@ print("✔ Drainage paths")
 # STEP 11: VISUALIZATION
 # ==========================================================
 drains = load_raster(drain)
-drains_bin = drains > 0
+# FIX: cost_pathway fills every "off-path" cell with the SAME sentinel used
+# for the cost surface's NoData (9999 here), and that sentinel is NOT
+# reliably tagged as real NoData in the output GeoTIFF header. `drains > 0`
+# therefore matches almost the entire raster, not just the genuine path
+# cells (since 9999 > 0 too) -- verified directly against the whitebox
+# binary. Destinations were written with value 1 in targets_tif, so check
+# for that exact value instead.
+drains_bin = drains == 1
 
 plt.figure(figsize=(10, 8))
 plt.imshow(dem, cmap="terrain", alpha=0.5)
