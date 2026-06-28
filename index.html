@@ -178,10 +178,38 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
 .stat-card.c-blue  { border-left-color: var(--info); }
 .stat-card.c-red   { border-left-color: var(--danger); }
 .stat-card.c-purple{ border-left-color: var(--purple); }
+.stat-card.c-amber { border-left-color: var(--warning); }
 
 .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }
 .stat-val { font-size: 24px; font-weight: 700; color: var(--text); font-family: var(--mono); }
 .stat-unit { font-size: 11px; color: var(--text-muted); }
+
+/* Priority Ranking Panel */
+.priority-panel {
+  position: absolute; top: 90px; right: 20px; z-index: 999;
+  width: 260px; max-height: 50vh; overflow-y: auto; display: none;
+  background: var(--bg-glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px; box-shadow: var(--shadow-lg); border: 1px solid rgba(255,255,255,0.4);
+}
+.priority-panel-header {
+  padding: 12px 16px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-muted); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: inherit; backdrop-filter: blur(10px);
+}
+.priority-list { padding: 4px 0; }
+.priority-item {
+  padding: 10px 16px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;
+  display: flex; align-items: center; gap: 10px; transition: background .15s;
+}
+.priority-item:last-child { border-bottom: none; }
+.priority-item:hover { background: rgba(139,92,246,0.1); }
+.priority-rank {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--purple); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+.priority-body { flex: 1; min-width: 0; }
+.priority-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.priority-sub { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
 
 /* Terminal Log Panel */
 .terminal-wrapper {
@@ -271,6 +299,15 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
 .team-links { display: flex; gap: 12px; }
 .team-links a { color: var(--text-muted); font-size: 18px; transition: color 0.2s; text-decoration: none;}
 .team-links a:hover { color: var(--info); }
+
+/* Metrics Guide modal */
+.team-modal-content.wide { width: 760px; }
+.metrics-list { display: flex; flex-direction: column; gap: 12px; max-height: 62vh; overflow-y: auto; padding-right: 6px; }
+.metric-item { padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px; background: #F8FAFC; }
+.metric-item h4 { margin: 0 0 6px 0; font-size: 13.5px; color: #1E293B; display: flex; align-items: center; gap: 8px; }
+.metric-item h4 .metric-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.metric-item p { margin: 0; font-size: 12px; color: var(--text-muted); line-height: 1.55; }
+.metric-item p b { color: var(--text); }
 </style>
 </head>
 <body>
@@ -401,9 +438,20 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
       <button class="btn-sm" id="btnGeoJSON" onclick="downloadGeoJSON()" disabled>
         <i class="ti ti-download"></i> GeoJSON
       </button>
+      <button class="btn-sm" id="btnReport" onclick="downloadReport()" disabled>
+        <i class="ti ti-file-text"></i> PWD Report
+      </button>
       <button class="btn-sm primary" id="btnDownload" onclick="downloadZip()" disabled>
         <i class="ti ti-folder-zip"></i> Download PWD Pack
       </button>
+      <button class="btn-sm" onclick="openMetricsModal()">
+        <i class="ti ti-info-circle"></i> Metrics Guide
+      </button>
+    </div>
+
+    <div class="priority-panel" id="priorityPanel">
+      <div class="priority-panel-header">Priority Interventions</div>
+      <div class="priority-list" id="priorityList"></div>
     </div>
 
     <div class="map-wrap">
@@ -429,6 +477,11 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
           <div class="stat-label">Waterlogging Zones</div>
           <div class="stat-val" id="sv-hot">--</div>
           <div class="stat-unit">Waterlogging Hotspots</div>
+        </div>
+        <div class="stat-card c-amber">
+          <div class="stat-label">Households at Risk</div>
+          <div class="stat-val" id="sv-house">--</div>
+          <div class="stat-unit">Est. (1 / building footprint)</div>
         </div>
         <div class="stat-card c-purple">
           <div class="stat-label">Proposed Drainage</div>
@@ -516,6 +569,80 @@ html, body { height: 100%; font-family: var(--font); background: #E2E8F0; color:
             <a href="#" target="_blank" title="Website"><i class="ti ti-world"></i></a>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="team-modal" id="metricsModal">
+  <div class="team-modal-content wide">
+    <div class="team-header">
+      <h2><i class="ti ti-info-circle"></i> Metrics Guide</h2>
+      <button class="close-modal-btn" onclick="closeMetricsModal()"><i class="ti ti-x"></i></button>
+    </div>
+
+    <div class="metrics-list">
+      <div class="metric-item">
+        <h4><span class="metric-dot" style="background:var(--danger)"></span>Waterlogging Zone</h4>
+        <p>A grid cell whose composite waterlogging index falls in the top 30% (70th percentile or above)
+        of the whole scan. The index averages four normalised (0&ndash;1) terrain factors: Topographic
+        Wetness Index, inverse slope, inverse elevation, and inverse Height Above Nearest Drainage (HAND)
+        &mdash; so flat, low-lying, poorly-drained ground scores highest.
+        <b>Range:</b> underlying index is 0&ndash;1, threshold is relative to this scan only.
+        <b>Significance:</b> identifies the most flood-prone ground in this survey, relative to the rest of it.</p>
+      </div>
+
+      <div class="metric-item">
+        <h4><span class="metric-dot" style="background:var(--danger)"></span>Severity Index</h4>
+        <p>The waterlogging index value (0&ndash;1, see above) at the single worst point inside a given
+        waterlogging zone.
+        <b>Significance:</b> used to rank zones &mdash; the zone with the highest severity index becomes
+        Priority 1. Higher = more urgent.</p>
+      </div>
+
+      <div class="metric-item">
+        <h4><span class="metric-dot" style="background:var(--purple)"></span>Priority</h4>
+        <p>The rank (1, 2, 3, &hellip;) assigned to each proposed drain after sorting all zones by Severity
+        Index, highest first.
+        <b>Range:</b> 1 to the total number of proposed drains.
+        <b>Significance:</b> suggested construction sequencing &mdash; Priority 1 is the single most urgent
+        intervention identified.</p>
+      </div>
+
+      <div class="metric-item">
+        <h4><span class="metric-dot" style="background:var(--purple)"></span>Length (m)</h4>
+        <p>The real-world length of a proposed drain's path, computed by summing the actual ground
+        distance between every consecutive pixel along the traced route (using the DTM's pixel resolution,
+        with diagonal steps measured correctly).
+        <b>Significance:</b> a direct, defensible estimate of the channel/pipe length required &mdash; not a
+        rough guess.</p>
+      </div>
+
+      <div class="metric-item">
+        <h4><span class="metric-dot" style="background:var(--warning)"></span>Estimated Households at Risk</h4>
+        <p>The number of distinct building rooftop footprints located within a small buffer (~2&ndash;3 m) of
+        a waterlogging zone. Each building blob is treated as one household.
+        <b>Range:</b> 0 up to the total buildings detected in the scan.
+        <b>Significance:</b> estimates how many dwellings would benefit from an intervention. This is a
+        rooftop-footprint proxy, <b>not a verified census</b> &mdash; confirm on the ground.</p>
+      </div>
+
+      <div class="metric-item">
+        <h4><span class="metric-dot" style="background:var(--purple)"></span>Relative Cost</h4>
+        <p>The cumulative routing cost of the least-cost path from a zone's worst point back to the natural
+        drainage network. Cost accumulates as 0.5&times;normalised slope + 0.3&times;normalised HAND +
+        0.2&times;normalised elevation per cell traversed, with a large fixed penalty for crossing a building
+        footprint. <b>This is NOT a monetary figure</b> &mdash; it is a unitless routing-difficulty score.
+        <b>Range:</b> no fixed upper bound; short flat unobstructed routes score low (tens), longer/steeper/
+        building-crossing routes score much higher.
+        <b>Significance:</b> compares interventions by construction difficulty, independent of length alone.</p>
+      </div>
+
+      <div class="metric-item">
+        <h4><span class="metric-dot" style="background:var(--info)"></span>AI Accuracy / Ground Classification</h4>
+        <p>The percentage of LiDAR points classified as ground. Shows "N/A (passthrough)" when the
+        RandLA-Net model wasn't available and the file's existing classification field was used instead.
+        <b>Significance:</b> indicates how much of the point cloud actually informed the terrain model.</p>
       </div>
     </div>
   </div>
@@ -666,6 +793,7 @@ function listenSSE(jid) {
     document.getElementById('sv-pts').textContent   = d.total_pts;
     document.getElementById('sv-acc').textContent   = d.accuracy;
     document.getElementById('sv-hot').textContent   = d.hotspots;
+    document.getElementById('sv-house').textContent = d.households_at_risk;
     document.getElementById('sv-drain').textContent = d.drain_km;
 
     geojsonPaths = d.geojsons || {};
@@ -673,6 +801,7 @@ function listenSSE(jid) {
 
     document.getElementById('btnDownload').disabled = false;
     document.getElementById('btnGeoJSON').disabled  = false;
+    document.getElementById('btnReport').disabled   = false;
 
     loadMap(d.geojsons, d.visuals);
 
@@ -714,6 +843,8 @@ async function loadMap(gjPaths, visuals) {
 
   Object.values(mapLayers).forEach(l => { if (l) leafletMap.removeLayer(l); });
   mapLayers = { drain: null, hotspot: null, altdrain: null, dtm_img: null, twi_img: null };
+  document.getElementById('priorityPanel').style.display = 'none';
+  document.getElementById('priorityList').innerHTML = '';
 
   if(visuals && visuals.dtm) {
       mapLayers.dtm_img = L.imageOverlay(visuals.dtm.url, visuals.dtm.bounds, {opacity: 0.7});
@@ -743,11 +874,18 @@ async function loadMap(gjPaths, visuals) {
       const layer = L.geoJSON(gj, {
         style: t.style,
         pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 5, ...t.style(f) }),
-        onEachFeature: (f, l) => l.bindPopup(t.popup(f.properties || {}))
+        onEachFeature: (f, l) => {
+          const props = f.properties || {};
+          l.bindPopup(t.popup(props));
+        }
       });
 
       if (layerOn[t.mapKey]) layer.addTo(leafletMap);
       mapLayers[t.mapKey] = layer;
+
+      if (t.mapKey === 'altdrain') {
+        populatePriorityPanel(gj.features, layer);
+      }
 
       try { layer.getBounds && bounds.push(layer.getBounds()); } catch(e){}
     } catch (e) {
@@ -789,13 +927,53 @@ function hotPopup(p) {
   </div>`;
 }
 function altPopup(p) {
-  return `<div style="font-size:12px;min-width:150px; font-family:'Inter',sans-serif">
+  return `<div style="font-size:12px;min-width:190px; font-family:'Inter',sans-serif">
     <b style="color:#8B5CF6"><i class="ti ti-tools"></i> Proposed Drain ${p.drain_id ? '#' + p.drain_id : ''}</b><br>
     ${p.priority ? 'Build Priority: <b>Phase ' + p.priority + '</b><br>' : ''}
     ${p.severity !== undefined ? 'Severity Index: <b>' + p.severity + '</b><br>' : ''}
-    ${p.path_cells ? 'Path Length: <b>' + p.path_cells + ' cells</b><br>' : ''}
+    ${p.length_m !== undefined ? 'Length: <b>' + p.length_m + ' m</b><br>' : ''}
+    ${p.households_at_risk !== undefined ? 'Est. Households Served: <b>' + p.households_at_risk + '</b><br>' : ''}
     ${p.relative_cost !== undefined ? 'Relative Cost: <b>' + p.relative_cost + '</b>' : ''}
+    <div style="font-size:10px;color:#94A3B8;margin-top:6px;">See Metrics Guide for what these mean</div>
   </div>`;
+}
+
+// ── Priority ranking panel ─────────────────────────────────────────────────
+function populatePriorityPanel(features, layerGroup) {
+  const panel = document.getElementById('priorityPanel');
+  const list = document.getElementById('priorityList');
+  list.innerHTML = '';
+  if (!features || !features.length) { panel.style.display = 'none'; return; }
+
+  const sorted = [...features].sort((a, b) =>
+    (a.properties.priority ?? 999) - (b.properties.priority ?? 999));
+
+  sorted.forEach(f => {
+    const p = f.properties || {};
+    const item = document.createElement('div');
+    item.className = 'priority-item';
+    item.innerHTML = `
+      <div class="priority-rank">${p.priority ?? '-'}</div>
+      <div class="priority-body">
+        <div class="priority-title">Drain #${p.drain_id ?? '-'} &middot; ${p.length_m ?? '?'} m</div>
+        <div class="priority-sub">Severity ${p.severity ?? '-'} &middot; ${p.households_at_risk ?? '?'} households</div>
+      </div>`;
+    item.onclick = () => {
+      try {
+        const coords = f.geometry.coordinates;
+        const mid = coords[Math.floor(coords.length / 2)];
+        leafletMap.setView([mid[1], mid[0]], 18);
+        layerGroup.eachLayer(l => {
+          if (l.feature && l.feature.properties && l.feature.properties.drain_id === p.drain_id) {
+            l.openPopup();
+          }
+        });
+      } catch (e) {}
+    };
+    list.appendChild(item);
+  });
+
+  panel.style.display = 'block';
 }
 
 // ── Layer toggles ─────────────────────────────────────────────────────────
@@ -813,6 +991,11 @@ function downloadZip() {
   if (!jobId) return;
   addLog('ok', 'Compiling deliverables package...');
   window.location.href = '/download/' + jobId;
+}
+function downloadReport() {
+  if (!jobId) return;
+  addLog('ok', 'Generating PWD summary report...');
+  window.location.href = '/report/' + jobId;
 }
 async function downloadGeoJSON() {
   if (!jobId || !Object.keys(geojsonPaths).length) return;
@@ -838,6 +1021,16 @@ function closeTeamModal() {
 }
 document.getElementById('teamModal').addEventListener('click', function(e) {
   if (e.target === this) closeTeamModal();
+});
+
+function openMetricsModal() {
+  document.getElementById('metricsModal').classList.add('show');
+}
+function closeMetricsModal() {
+  document.getElementById('metricsModal').classList.remove('show');
+}
+document.getElementById('metricsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeMetricsModal();
 });
 
 // ── UI helpers ────────────────────────────────────────────────────────────
